@@ -1,27 +1,39 @@
-// handler.rs
-use axum::{Json, extract::Path, http::StatusCode};
-use crate::{model::Order, db::DbClient};
+use axum::{Json, extract::{Path, State}, http::StatusCode};
 use std::sync::Arc;
+use tracing::error;
+use crate::{model::Order, state::AppState};
 
-// Обработчик для получения заказа по UID (GET)
-pub async fn get_order(
+/// Обработчик для получения заказа по order_uid (GET-запрос)
+pub async fn get_order_by_uid(
     Path(order_uid): Path<String>,
-    db: Arc<DbClient>
+    state: State<Arc<AppState>>
 ) -> Result<Json<Order>, StatusCode> {
-    match db.get_order_by_uid(&order_uid).await {
+    match state.get_db().get_order_by_uid(&order_uid).await {
         Ok(Some(order)) => Ok(Json(order)),
-        Ok(None) => Err(StatusCode::NOT_FOUND),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(None) => {
+            error!("Order with UID {} not found", order_uid);
+            Err(StatusCode::NOT_FOUND)
+        },
+        Err(e) => {
+            error!("Order getting failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        },
     }
 }
 
-// Новый обработчик для добавления заказа (POST)
+/// Обработчик для добавления нового заказа (POST-запрос)
 pub async fn create_order(
-    Json(order): Json<Order>, // Получаем JSON заказа и десериализуем его в структуру Order
-    db: Arc<DbClient>
+    state: State<Arc<AppState>>,
+    Json(order): Json<Order>
 ) -> Result<StatusCode, StatusCode> {
-    match db.save_order(&order).await {
-        Ok(_) => Ok(StatusCode::CREATED), // Если заказ успешно сохранён, возвращаем код 201 Created
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR), // При ошибке возвращаем код 500
+    match state.get_db().create_order(&order).await {
+        Ok(_) => {
+            tracing::info!("Order with UID {} successfully created", order.order_uid);
+            Ok(StatusCode::CREATED)
+        },
+        Err(e) => {
+            error!("Order creation failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        },
     }
 }
